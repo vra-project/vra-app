@@ -40,14 +40,14 @@ DURATION_DICT = {
     }
 
 one_hot_values = {
-    'developer': 1,
-    'publisher': 0.2,
-    'keywords': 0.75,
+    'developer': 0.75,
+    'publisher': 0.25,
+    'keywords': 0.6,
     'devs': 1,
-    'franchises': 0.75,
+    'franchises': 1,
     'country': 0.05,
-    'genres': 1,
-    'themes': 0.8,
+    'genres': 0.9,
+    'themes': 0.7,
     'game_modes': 0.5,
     'player_perspectives': 0.4
     }
@@ -59,175 +59,6 @@ MULTI_COLS = {
     'game_modes': 'Select how you want to play',
     'player_perspectives': 'Select your favorite perspectives'
     }
-    
-# %%
-# Definicion del algoritmo item-item
-
-
-def similarity(name1, name2, similar_df):
-    '''
-    Funcion que describira la distancia entre dos titulos diferentes
-    '''
-    game1 = similar_df.loc[similar_df['name'] == name1].iloc[0]
-    game2 = similar_df.loc[similar_df['name'] == name2].iloc[0]
-
-    distance = 0
-    for col in similar_df.columns[7:]:
-        # print(col)
-        if any([max(game1[col]) == 0, max(game2[col]) == 0]):
-            add = 1
-        else:
-            add = spatial.distance.cosine(game1[col], game2[col])
-        add = add * one_hot_values[col]
-        # print(add)
-        distance += add
-    add_year = (
-        (game1['first_release_date'] - game2['first_release_date'])/50
-        )
-    # print(add_year)
-    distance += add_year
-    add_OC = (game1['OC_rating'] - game2['OC_rating'])/30
-    # print(add_OC)
-    distance += add_OC
-    add_duration = (
-        abs(game1['main_duration'] - game2['main_duration']) / 30
-        )
-    if add_duration > 4:
-        add_duration = 4
-    # print(add_duration)
-    distance += add_duration
-    return distance
-
-# %%
-# Definicion de la funcion que determina el juego mas similar a uno dado
-
-
-def most_similar(name, similar_df):
-    '''
-    Funcion que obtendra los n juegos mas cercanos al provisto
-    '''
-    game = similar_df.loc[similar_df['name'] == name].iloc[0]
-    games_to_analize = (
-        similar_df.loc[similar_df['name'] != name].reset_index(drop=True)
-        )
-    games_to_analize['sim'] = (
-        games_to_analize.apply(
-            lambda row: similarity(name, row['name'], similar_df),
-            axis=1
-            )
-        )
-    games_to_analize = games_to_analize.sort_values('sim', ascending=True)
-    return games_to_analize
-
-# %%
-# Definicion del algoritmo item-user
-
-
-def similar_review(game_name, games_df, pivoted_df):
-    '''
-    Se buscan los juegos que hayan jugado otros usuarios que hayan jugado
-    a dicho juego
-    '''
-    # Se obtiene el id y el numero de reviews del juego
-    game_id, n_reviews = (
-        games_df
-        .loc[games_df['name'] == game_name, ['game_id', 'RAWG_nreviews']]
-        .iloc[0]
-        )
-    # Se obtienen los usuarios que hayan jugado al juego en cuestion
-    game_df = (
-        pivoted_df
-        .dropna(subset=game_id)
-        )
-    # Se obtiene la columna del juego solicitado
-    game_col = game_df[game_id]
-    # Se obtienen solo los juegos que hayan jugado un % de los jugadores
-    # anteriores
-    games_played = (
-        game_df
-        .drop(game_id, axis=1)
-        .count()
-        .loc[lambda value: value >= n_reviews * 0.15]
-        .index
-        )
-    games_played_df = game_df[games_played].fillna(0)
-
-    # Se correlan los valores y se ordena
-    print(f'Juegos similares a {game_name}')
-    return (
-        games_played_df
-        .corrwith(game_col)
-        .sort_values(ascending=False)
-        .loc[lambda value: value > 0]
-        .reset_index()
-        .rename(columns={0: 'corr'})
-        .merge(games_df[['name', 'game_id']], on='game_id')
-        [['name', 'corr']]
-        )
-
-
-# %%
-# Definicion del algoritmo user-user
-
-
-def user_based_recommender(
-        user_slug, pivoted_df, reviews_df, perc=50, n_users=10
-        ):
-    if perc > 1:
-        perc = perc/100
-    elif perc <= 0:
-        return 'Pero no ves que no'
-    user_df = pivoted_df.loc[pivoted_df.index == user_slug]
-    user_played_games = user_df.columns[user_df.notna().any()].tolist()
-    user_played_df = user_df[user_played_games]
-    
-    pivoted_user_df = pivoted_df[user_played_games]
-    limited_user_df = pivoted_user_df.loc[
-        pivoted_user_df.count(axis=1) >= (len(user_played_games) * perc)
-        ]
-    corr_values = (
-        limited_user_df
-        .T
-        .corr()
-        .loc[limited_user_df.index == user_slug]
-        .drop(user_slug, axis=1)
-        .reset_index(drop=True)
-        .unstack()
-        .sort_values(ascending=False)
-        .reset_index()
-        .drop('level_1', axis=1)
-        .rename(columns={0: 'corr'})
-        .dropna()
-        )
-
-    top_related_users = corr_values.iloc[:n_users]
-    avg_corr = top_related_users['corr'].mean()
-    top_related_rating = (
-        top_related_users.merge(reviews_df)
-        .assign(weighted_rating=lambda df: df['corr'] * df['review_rating'])
-        .drop('user_id', axis=1)
-        )
-
-    non_played_rating = top_related_rating.loc[
-        ~(top_related_rating['game_id'].isin(user_played_games))
-        ]
-    recommendation_df = (
-        non_played_rating
-        # top_related_rating
-        .groupby('game_id')
-        ['weighted_rating']
-        .agg(['count', 'mean'])
-        .reset_index()
-        .loc[lambda df:
-             (df['count'] >= n_users * perc) & (df['mean'] >= 4*avg_corr)
-             ]
-        .sort_values('mean', ascending=False)
-        .drop(['count'], axis=1)
-        .merge(games_df[['name', 'game_id']], on='game_id')
-        [['name', 'mean']]
-        )
-
-    return recommendation_df
 
 # %%
 # Se leen las reviews disponibles
@@ -262,9 +93,9 @@ if 'games_df' not in st.session_state:
         pd.read_feather(f'{BUCKET_S3}/{COMPLEX_NAME}')
         )
 
-# %%
-# Se transforman los dataframes de juegos
-
+    complex_df['storyline'] = (
+        complex_df['storyline'].replace('nan', '')
+        )
     for col in COLS_LIST[:4]:
         complex_df[col] = complex_df[col].map(ast.literal_eval)
     for col in COLS_LIST[4:11]:
@@ -369,6 +200,12 @@ with st.form(key='select_filters'):
             index=4
             )
 
+    same_dev = st.checkbox(
+        "Leave this checked if you'd like results from the same developers as"
+        " the game you selected",
+        True
+        )
+
     fran = st.checkbox(
         "Leave this checked if you'd like results from the same game series as"
         " the game you selected",
@@ -383,6 +220,23 @@ if SEND_GAME:
     else:
         with st.spinner('Searching for diamonds in the mine'):
             complex_df = st.session_state.complex_df.copy()
+            if not same_dev:
+                game_dev = st.session_state.complex_df.loc[
+                    st.session_state.complex_df['name'] == game_name,
+                    'developer'
+                    ].iloc[0]
+                if len(game_dev) > 0:
+                    complex_df = (
+                        complex_df
+                        .loc[~(
+                            complex_df['developer'].map(
+                                lambda x: any(
+                                    [True for ser in x if ser in game_dev]
+                                    )
+                                )
+                            )
+                            ]
+                        )
             if not fran:
                 game_ser = st.session_state.complex_df.loc[
                     st.session_state.complex_df['name'] == game_name, 'series'
@@ -448,10 +302,202 @@ if SEND_GAME:
                         axis=1
                         )
                     )
+                # %%
+                # Definicion de las funciones
+                
+                
+                def similarity(name1, name2):
+                    '''
+                    Funcion que describira la distancia entre dos titulos
+                    diferentes
+                    '''
+                    game1 = similar_df.loc[similar_df['name'] == name1].iloc[0]
+                    game2 = similar_df.loc[similar_df['name'] == name2].iloc[0]
+                
+                    distance = 0
+                    for col in similar_df.columns[6:]:
+                        # print(col)
+                        if any([max(game1[col]) == 0, max(game2[col]) == 0]):
+                            add = 1
+                        else:
+                            add = spatial.distance.cosine(
+                                game1[col], game2[col]
+                                )
+                        add = add * one_hot_values[col]
+                        # print(add)
+                        distance += add
+                    add_year = (
+                        (game1['first_release_date'] -
+                         game2['first_release_date'])/100
+                        )
+                    # print(add_year)
+                    distance += add_year
+                    add_OC = (game1['OC_rating'] - game2['OC_rating'])/30
+                    # print(add_OC)
+                    distance += add_OC
+                    add_duration = np.array([
+                        abs(game1['main_duration'] - game2['main_duration'])
+                        / 30,
+                        abs(game1['extra_duration'] - game2['extra_duration'])
+                        / 30,
+                        abs(game1['comp_duration'] - game2['comp_duration'])
+                        / 30
+                        ]).mean()
+                    if add_duration > 4:
+                        add_duration = 4
+                    # print(add_duration)
+                    distance += add_duration
+                    return distance
+
+
+                # Definicion de la funcion que determina el juego mas similar a
+                # uno dado
+                
+                
+                def most_similar(name):
+                    '''
+                    Funcion que obtendra los n juegos mas cercanos al provisto
+                    '''
+                    game = similar_df.loc[similar_df['name'] == name].iloc[0]
+                    games_to_analize = (
+                        similar_df.loc[similar_df['name'] != name].reset_index(
+                            drop=True
+                            )
+                        )
+                    games_to_analize['sim'] = (
+                        games_to_analize.apply(
+                            lambda row: similarity(name, row['name']),
+                            axis=1
+                            )
+                        )
+                    games_to_analize = games_to_analize.sort_values(
+                        'sim', ascending=True
+                        )
+                    return games_to_analize
+                
+                
+                def similar_review(game_name):
+                    '''
+                    Se buscan los juegos que hayan jugado otros usuarios que
+                    hayan jugado a dicho juego
+                    '''
+                    # Se obtiene el id y el numero de reviews del juego
+                    game_id = (
+                        games_df
+                        .loc[games_df['name'] == game_name, 'game_id']
+                        .iloc[0]
+                        )
+                    # Se obtienen los usuarios que hayan jugado al juego
+                    game_df = (
+                        pivoted_df
+                        .dropna(subset=game_id)
+                        .loc[pivoted_df[game_id] > 0]
+                        )
+                    # Se obtiene la columna del juego solicitado
+                    game_col = game_df[game_id]
+                    # Se obtienen solo los juegos que hayan jugado un % de los
+                    # jugadores
+                    games_played = (
+                        game_df
+                        .drop(game_id, axis=1)
+                        .count()
+                        .loc[lambda value:
+                             (value >= len(game_col) * 0.1) & (value >= 5)
+                             ]
+                        .index
+                        )
+                    games_played_df = game_df[games_played].fillna(0)
+                
+                    # Se correlan los valores y se ordena
+                    return (
+                        games_played_df
+                        .corrwith(game_col)
+                        .sort_values(ascending=False)
+                        .loc[lambda value: value > 0]
+                        .reset_index()
+                        .rename(columns={0: 'corr'})
+                        .merge(games_df[['name', 'game_id']], on='game_id')
+                        [['name', 'corr']]
+                        )
+                
+                
+                def user_based_recommender(
+                        user_slug, perc=50, n_users=10
+                        ):
+                    if perc > 1:
+                        perc = perc/100
+                    elif perc <= 0:
+                        return 'Pero no ves que no'
+                    user_df = pivoted_df.loc[pivoted_df.index == user_slug]
+                    user_played_games = (
+                        user_df.columns[user_df.notna().any()].tolist()
+                        )
+                    user_played_df = user_df[user_played_games]
+                    
+                    pivoted_user_df = pivoted_df[user_played_games]
+                    limited_user_df = pivoted_user_df.loc[
+                        pivoted_user_df.count(axis=1) >=
+                        (len(user_played_games) * perc)
+                        ]
+                    corr_values = (
+                        limited_user_df
+                        .T
+                        .corr()
+                        .loc[limited_user_df.index == user_slug]
+                        .drop(user_slug, axis=1)
+                        .reset_index(drop=True)
+                        .unstack()
+                        .sort_values(ascending=False)
+                        .reset_index()
+                        .drop('level_1', axis=1)
+                        .rename(columns={0: 'corr'})
+                        .dropna()
+                        )
+                
+                    top_related_users = corr_values.iloc[:n_users]
+                    avg_corr = top_related_users['corr'].mean()
+                    top_related_rating = (
+                        top_related_users.merge(reviews_df)
+                        .assign(weighted_rating=lambda df:
+                                df['corr'] * df['review_rating'])
+                        .drop('user_id', axis=1)
+                        )
+                
+                    non_played_rating = top_related_rating.loc[
+                        ~(top_related_rating['game_id']
+                          .isin(user_played_games))
+                        ]
+                    recommendation_df = (
+                        non_played_rating
+                        # top_related_rating
+                        .groupby('game_id')
+                        ['weighted_rating']
+                        .agg(['count', 'mean'])
+                        .reset_index()
+                        .loc[lambda df:
+                             (df['count'] >= n_users * perc) &
+                             (df['mean'] >= 4*avg_corr)
+                             ]
+                        .sort_values('mean', ascending=False)
+                        .drop(['count'], axis=1)
+                        .merge(games_df[['name', 'game_id']], on='game_id')
+                        [['name', 'mean']]
+                        )
+                
+                    return recommendation_df
+
+
+                complex_df = complex_df.rename(columns={
+                    col: col.title().replace('_', ' ')
+                    for col in complex_df.columns
+                    })
+                complex_df = complex_df.rename(columns={'Oc Rating': 'Rating'})
+            
                 results = (
-                    most_similar(game_name, similar_df)
+                    most_similar(game_name)
                     [['name']]
-                    .merge(complex_df, on='name')
+                    .merge(complex_df, left_on='name', right_on='Name')
+                    .drop('name', axis=1)
                     )
 
                 pivoted_df = (
@@ -464,14 +510,28 @@ if SEND_GAME:
                         columns='game_id',
                         values='review_rating'
                         )
-                    .replace([1, 3, 4, 5], [-1, 0, 1, 2])
+                    .replace([1, 3, 4, 5], [-2, 0, 1, 5])
                     )
 
                 results_2 = (
-                    similar_review(game_name, games_df, pivoted_df)
+                    similar_review(game_name)
                     [['name']]
-                    .merge(complex_df, on='name')
+                    .merge(complex_df, left_on='name', right_on='Name')
+                    .drop('name', axis=1)
                     )
 
-        st.dataframe(results.iloc[:5])
-        st.dataframe(results_2.iloc[:5])
+                chosen_game = (
+                    complex_df
+                        .loc[complex_df['Name'] == game_name]
+                        .reset_index(drop=True)
+                        )
+
+        st.write('This is your chosen game')
+        st.dataframe(chosen_game)
+        st.write('These are recommended based on similarity among games')
+        st.dataframe(results.iloc[:10])
+        st.write(
+            'These are recommended based on what other players have also '
+            'played'
+            )
+        st.dataframe(results_2.iloc[:10])
