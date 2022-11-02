@@ -4,8 +4,9 @@ Codigo para la creacion de una aplicacion para el uso del VRA en streamlit
 '''
 
 # %%
-# Se cargan las librerías necesarias para realizar este proceso
+# Se cargan las librerias necesarias para realizar este proceso
 
+import random as rd
 import pandas as pd
 import boto3
 from botocore.exceptions import ClientError
@@ -218,7 +219,16 @@ if SEND_GAME:
     if game_name == '':
         st.error("You didn't select any games")
     else:
-        with st.spinner('Searching for diamonds in the mine'):
+        with st.spinner(rd.choice([
+                'Searching for diamonds in the mine',
+                'Looting legendary equipment',
+                'Fighting a lord of cinder',
+                'Finding the last korok',
+                'Catching them all',
+                'Getting to level 100',
+                'Reaching to another castle',
+                'Running Doom on a toaster'
+                ])):
             complex_df = st.session_state.complex_df.copy()
             if not same_dev:
                 game_dev = st.session_state.complex_df.loc[
@@ -337,11 +347,11 @@ if SEND_GAME:
                     distance += add_OC
                     add_duration = np.array([
                         abs(game1['main_duration'] - game2['main_duration'])
-                        / 30,
+                        / 50,
                         abs(game1['extra_duration'] - game2['extra_duration'])
-                        / 30,
+                        / 50,
                         abs(game1['comp_duration'] - game2['comp_duration'])
-                        / 30
+                        / 50
                         ]).mean()
                     if add_duration > 4:
                         add_duration = 4
@@ -535,3 +545,16 @@ if SEND_GAME:
             'played'
             )
         st.dataframe(results_2.iloc[:10])
+        st.write(
+            'Mixing the results, you should play these'
+            )
+        st.dataframe(
+            results
+            .reset_index()
+            .merge(results_2[['Name']].reset_index(), on='Name')
+            .assign(index=lambda df: (df['index_x'] + df['index_y']) / 2)
+            .sort_values('index', ascending=True)
+            .drop(['index', 'index_x', 'index_y'], axis=1)
+            .reset_index(drop=True)
+            .iloc[:10]
+            )
