@@ -7,10 +7,9 @@ Codigo para la creacion de una aplicacion para el uso del VRA en streamlit
 # Se cargan las librerias necesarias para realizar este proceso
 
 import random as rd
-import pandas as pd
-import boto3
-from botocore.exceptions import ClientError
 import ast
+import boto3
+import pandas as pd
 from scipy import spatial
 import numpy as np
 import streamlit as st
@@ -20,16 +19,16 @@ import streamlit as st
 # También se necesitan claves de acceso a nuestro servidor de AWS
 
 BUCKET_S3 = st.secrets['bucket_s3']
-NEW_FILE_NAME = 'clean_dataset/games_clean.feather'
-COMPLEX_NAME = 'clean_dataset/games_complex.feather'
-CLEAN_FOLDER = 'clean_reviews/'
+NEW_FILE_NAME = st.secrets['new_file_name']
+COMPLEX_NAME = st.secrets['complex_name']
+CLEAN_FOLDER = st.secrets['clean_folder']
 COLS_INT = [
     'age_ratings', 'OC_rating', 'first_release_date', 'RAWG_nreviews'
     ]
 COLS_LIST = [
-    'porting', 'supporting', 'platforms', 'series', 'game_modes', 'genres',
-    'player_perspectives', 'themes', 'developer', 'publisher', 'devs',
-    'keywords', 'franchises', 'country'
+    'platforms', 'series', 'game_modes', 'genres', 'player_perspectives',
+    'themes', 'developer', 'publisher', 'devs', 'keywords', 'franchises',
+    'country'
     ]
 COLS_FLOAT = [
     'main_duration', 'extra_duration', 'comp_duration', 'RAWG_rating'
@@ -55,85 +54,88 @@ one_hot_values = {
 
 MULTI_COLS = {
     'platforms': 'Select your platforms',
-    'genres': 'Select your favorite genres', 
+    'genres': 'Select your favorite genres',
     'themes': 'Select your favorite themes',
     'game_modes': 'Select how you want to play',
     'player_perspectives': 'Select your favorite perspectives'
     }
 
+EASTER_EGGS = st.secrets['easter_eggs'].split(', ')
+
 # %%
 # Se leen las reviews disponibles
-
-if 'reviews_df' not in st.session_state:
-    bucket = (
-        boto3.resource('s3', region_name='us-east-1')
-        .Bucket(name=BUCKET_S3[5:])
-        )
-    av_files = [
-        obj.key for obj in bucket.objects.filter(Prefix=CLEAN_FOLDER)
-        if len(obj.key) > len(CLEAN_FOLDER)
-        ]
-    
-    reviews_list = []
-    for file in av_files:
-        reviews_list.append(
-            pd.read_feather(f'{BUCKET_S3}/{file}')
+with st.spinner('Loading data'):
+    if 'reviews_df' not in st.session_state:
+        bucket = (
+            boto3.resource('s3', region_name='us-east-1')
+            .Bucket(name=BUCKET_S3[5:])
             )
-    
-    st.session_state.reviews_df = pd.concat(reviews_list).drop('id', axis=1)
-    print('Reviews cargadas')
+        av_files = [
+            obj.key for obj in bucket.objects.filter(
+                Prefix=CLEAN_FOLDER+'reviews'
+                )
+            if len(obj.key) > len(CLEAN_FOLDER)
+            ]
 
-# %%
-# Se leen los archivos de juegos
-if 'games_df' not in st.session_state:
-    games_df = (
-        pd.read_feather(f'{BUCKET_S3}/{NEW_FILE_NAME}')
-        )
-    
-    complex_df = (
-        pd.read_feather(f'{BUCKET_S3}/{COMPLEX_NAME}')
-        )
+        reviews_list = []
+        for file in av_files:
+            reviews_list.append(
+                pd.read_feather(f'{BUCKET_S3}/{file}')
+                )
 
-    complex_df['storyline'] = (
-        complex_df['storyline'].replace('nan', '')
-        )
-    for col in COLS_LIST[:4]:
-        complex_df[col] = complex_df[col].map(ast.literal_eval)
-    for col in COLS_LIST[4:11]:
-        games_df[col] = games_df[col].map(ast.literal_eval)
-        complex_df[col] = complex_df[col].map(ast.literal_eval)
-    for col in COLS_LIST[11:]:
-        games_df[col] = games_df[col].map(ast.literal_eval)
-    
-    games_df['OC_rating'] = games_df['OC_rating'].str[:-2]
-    complex_df['OC_rating'] = complex_df['OC_rating'].str[:-2]
-    complex_df['age_ratings'] = complex_df['age_ratings'].str[:-2]
-        
-    for col in COLS_FLOAT[:-1]:
-        games_df[col] = games_df[col].astype(float)
-        complex_df[col] = complex_df[col].astype(float)
-    
-    games_df[COLS_INT[1:]] = games_df[COLS_INT[1:]].astype(int)
-    complex_df[COLS_INT[:1]] = complex_df[COLS_INT[:1]].astype(int)
-    games_df[COLS_FLOAT] = games_df[COLS_FLOAT].astype(float)
-    complex_df[COLS_FLOAT[:-1]] = complex_df[COLS_FLOAT[:-1]].astype(float)
-    complex_df['first_release_date'] = pd.to_datetime(
-        complex_df['first_release_date']
-        ).dt.date
+        st.session_state.reviews_df = pd.concat(reviews_list)
+        print('Reviews cargadas')
 
-    st.session_state.games_df = games_df.copy()
-    st.session_state.complex_df = complex_df.copy()
+    # %%
+    # Se leen los archivos de juegos
+    if 'games_df' not in st.session_state:
+        games_df = (
+            pd.read_feather(f'{BUCKET_S3}/{NEW_FILE_NAME}')
+            )
+
+        complex_df = (
+            pd.read_feather(f'{BUCKET_S3}/{COMPLEX_NAME}')
+            )
+
+        complex_df['storyline'] = (
+            complex_df['storyline'].replace('nan', '')
+            )
+        for col in COLS_LIST[:2]:
+            complex_df[col] = complex_df[col].map(ast.literal_eval)
+        for col in COLS_LIST[2:9]:
+            games_df[col] = games_df[col].map(ast.literal_eval)
+            complex_df[col] = complex_df[col].map(ast.literal_eval)
+        for col in COLS_LIST[9:]:
+            games_df[col] = games_df[col].map(ast.literal_eval)
+
+        games_df['OC_rating'] = games_df['OC_rating'].str[:-2]
+        complex_df['OC_rating'] = complex_df['OC_rating'].str[:-2]
+        complex_df['age_ratings'] = complex_df['age_ratings'].str[:-2]
+
+        for col in COLS_FLOAT[:-1]:
+            games_df[col] = games_df[col].astype(float)
+            complex_df[col] = complex_df[col].astype(float)
+
+        games_df[COLS_INT[1:]] = games_df[COLS_INT[1:]].astype(int)
+        complex_df[COLS_INT[:1]] = complex_df[COLS_INT[:1]].astype(int)
+        games_df[COLS_FLOAT] = games_df[COLS_FLOAT].astype(float)
+        complex_df[COLS_FLOAT[:-1]] = complex_df[COLS_FLOAT[:-1]].astype(float)
+        complex_df['first_release_date'] = pd.to_datetime(
+            complex_df['first_release_date']
+            ).dt.date
+
+        st.session_state.games_df = games_df.copy()
+        st.session_state.complex_df = complex_df.copy()
 
 # %%
 # Se selecciona un juego
-
 with st.form(key='select_filters'):
     game_name = st.selectbox(
         'Select a game',
         [''] + st.session_state.complex_df['name'].tolist(),
         key='game_1'
         )
-    
+
     # Se pide seleccionar las plataformas en las que se quiere jugar
     available = []
     selected = []
@@ -155,7 +157,7 @@ with st.form(key='select_filters'):
                     )
                 )
             )
-    
+
     if 'PlayStation 5' in selected[0]:
         selected[0].append('PlayStation 4')
     if 'PlayStation 2' in selected[0]:
@@ -174,7 +176,7 @@ with st.form(key='select_filters'):
         selected[0].append('Game Boy')
     if 'Game Boy Advance' in selected[0]:
         selected[0] += ['Game Boy', 'Game Boy Color']
-        
+
     if selected[0] == []:
         selected[0] = list(available[0])
     selected[0] = set(selected[0])
@@ -196,7 +198,7 @@ with st.form(key='select_filters'):
 
     with st.expander("Select an age limit if you'd like"):
         age = st.radio(
-            'Selecciona un limite de edad',
+            'Select an age limit',
             st.session_state.complex_df['age_ratings'].sort_values().unique(),
             index=4
             )
@@ -212,24 +214,16 @@ with st.form(key='select_filters'):
         " the game you selected",
         True
         )
-    
-    SEND_GAME = st.form_submit_button('Buscar recomendaciones')
+
+    SEND_GAME = st.form_submit_button('Search recommendations')
 
 if SEND_GAME:
     if game_name == '':
         st.error("You didn't select any games")
     else:
-        with st.spinner(rd.choice([
-                'Searching for diamonds in the mine',
-                'Looting legendary equipment',
-                'Fighting a lord of cinder',
-                'Finding the last korok',
-                'Catching them all',
-                'Getting to level 100',
-                'Reaching to another castle',
-                'Running Doom on a toaster'
-                ])):
+        with st.spinner(rd.choice(EASTER_EGGS)):
             complex_df = st.session_state.complex_df.copy()
+            # Se filtran juegos de la misma desarrolladora
             if not same_dev:
                 game_dev = st.session_state.complex_df.loc[
                     st.session_state.complex_df['name'] == game_name,
@@ -247,6 +241,7 @@ if SEND_GAME:
                             )
                             ]
                         )
+            # Se filtran juegos de la misma franquicia
             if not fran:
                 game_ser = st.session_state.complex_df.loc[
                     st.session_state.complex_df['name'] == game_name, 'series'
@@ -263,7 +258,7 @@ if SEND_GAME:
                             )
                             ]
                         )
-    
+            # Se realizan varios filtros distintos
             for var, col in zip(
                     selected,
                     MULTI_COLS.keys()
@@ -279,16 +274,16 @@ if SEND_GAME:
                                 )
                             ]
                         )
-            
+            # Se filtra por duracion
             if game_duration[1] == 100:
                 game_duration[1] = 100000
             complex_df = complex_df.loc[
                 (complex_df[duration_type] >= game_duration[0]) &
                 (complex_df[duration_type] <= game_duration[1])
                 ]
-    
+            # Se filtra por edad
             complex_df = complex_df.loc[complex_df['age_ratings'] <= age]
-    
+
             if len(complex_df) == 0:
                 st.warning("There aren't any games that match those filters")
             else:
@@ -314,8 +309,8 @@ if SEND_GAME:
                     )
                 # %%
                 # Definicion de las funciones
-                
-                
+
+
                 def similarity(name1, name2):
                     '''
                     Funcion que describira la distancia entre dos titulos
@@ -323,10 +318,9 @@ if SEND_GAME:
                     '''
                     game1 = similar_df.loc[similar_df['name'] == name1].iloc[0]
                     game2 = similar_df.loc[similar_df['name'] == name2].iloc[0]
-                
+
                     distance = 0
                     for col in similar_df.columns[6:]:
-                        # print(col)
                         if any([max(game1[col]) == 0, max(game2[col]) == 0]):
                             add = 1
                         else:
@@ -334,17 +328,14 @@ if SEND_GAME:
                                 game1[col], game2[col]
                                 )
                         add = add * one_hot_values[col]
-                        # print(add)
                         distance += add
                     add_year = (
                         (game1['first_release_date'] -
                          game2['first_release_date'])/100
                         )
-                    # print(add_year)
                     distance += add_year
-                    add_OC = (game1['OC_rating'] - game2['OC_rating'])/30
-                    # print(add_OC)
-                    distance += add_OC
+                    add_oc = (game1['OC_rating'] - game2['OC_rating'])/50
+                    distance += add_oc
                     add_duration = np.array([
                         abs(game1['main_duration'] - game2['main_duration'])
                         / 50,
@@ -355,20 +346,18 @@ if SEND_GAME:
                         ]).mean()
                     if add_duration > 4:
                         add_duration = 4
-                    # print(add_duration)
                     distance += add_duration
                     return distance
 
 
                 # Definicion de la funcion que determina el juego mas similar a
                 # uno dado
-                
-                
+
+
                 def most_similar(name):
                     '''
                     Funcion que obtendra los n juegos mas cercanos al provisto
                     '''
-                    game = similar_df.loc[similar_df['name'] == name].iloc[0]
                     games_to_analize = (
                         similar_df.loc[similar_df['name'] != name].reset_index(
                             drop=True
@@ -384,9 +373,40 @@ if SEND_GAME:
                         'sim', ascending=True
                         )
                     return games_to_analize
-                
-                
-                def similar_review(game_name):
+
+
+                complex_df = complex_df.rename(columns={
+                    col: col.title().replace('_', ' ')
+                    for col in complex_df.columns
+                    })
+                complex_df = complex_df.rename(columns={'Oc Rating': 'Rating'})
+
+                results = (
+                    most_similar(game_name)
+                    [['name']]
+                    .merge(complex_df, left_on='name', right_on='Name')
+                    .drop('name', axis=1)
+                    )
+                if len(results) > 0:
+                    results.index = range(1, len(results)+1)
+
+                # Se prepara el dataset para obtener las reviews similares
+                pivoted_df = (
+                    games_df
+                    .loc[games_df['RAWG_nreviews'] > 4]
+                    .merge(
+                        st.session_state.reviews_df, how='left', on='game_id'
+                        )
+                    .pivot_table(
+                        index='user_id',
+                        columns='game_id',
+                        values='review_rating'
+                        )
+                    .replace([1, 3, 4, 5], [-1, 0, 1, 5])
+                    )
+
+
+                def similar_review(game_title):
                     '''
                     Se buscan los juegos que hayan jugado otros usuarios que
                     hayan jugado a dicho juego
@@ -394,10 +414,12 @@ if SEND_GAME:
                     # Se obtiene el id y el numero de reviews del juego
                     game_id = (
                         games_df
-                        .loc[games_df['name'] == game_name, 'game_id']
+                        .loc[games_df['name'] == game_title, 'game_id']
                         .iloc[0]
                         )
                     # Se obtienen los usuarios que hayan jugado al juego
+                    if game_id not in pivoted_df:
+                        return pd.DataFrame(columns=['name', 'corr'])
                     game_df = (
                         pivoted_df
                         .dropna(subset=game_id)
@@ -417,7 +439,7 @@ if SEND_GAME:
                         .index
                         )
                     games_played_df = game_df[games_played].fillna(0)
-                
+
                     # Se correlan los valores y se ordena
                     return (
                         games_played_df
@@ -429,99 +451,6 @@ if SEND_GAME:
                         .merge(games_df[['name', 'game_id']], on='game_id')
                         [['name', 'corr']]
                         )
-                
-                
-                def user_based_recommender(
-                        user_slug, perc=50, n_users=10
-                        ):
-                    if perc > 1:
-                        perc = perc/100
-                    elif perc <= 0:
-                        return 'Pero no ves que no'
-                    user_df = pivoted_df.loc[pivoted_df.index == user_slug]
-                    user_played_games = (
-                        user_df.columns[user_df.notna().any()].tolist()
-                        )
-                    user_played_df = user_df[user_played_games]
-                    
-                    pivoted_user_df = pivoted_df[user_played_games]
-                    limited_user_df = pivoted_user_df.loc[
-                        pivoted_user_df.count(axis=1) >=
-                        (len(user_played_games) * perc)
-                        ]
-                    corr_values = (
-                        limited_user_df
-                        .T
-                        .corr()
-                        .loc[limited_user_df.index == user_slug]
-                        .drop(user_slug, axis=1)
-                        .reset_index(drop=True)
-                        .unstack()
-                        .sort_values(ascending=False)
-                        .reset_index()
-                        .drop('level_1', axis=1)
-                        .rename(columns={0: 'corr'})
-                        .dropna()
-                        )
-                
-                    top_related_users = corr_values.iloc[:n_users]
-                    avg_corr = top_related_users['corr'].mean()
-                    top_related_rating = (
-                        top_related_users.merge(reviews_df)
-                        .assign(weighted_rating=lambda df:
-                                df['corr'] * df['review_rating'])
-                        .drop('user_id', axis=1)
-                        )
-                
-                    non_played_rating = top_related_rating.loc[
-                        ~(top_related_rating['game_id']
-                          .isin(user_played_games))
-                        ]
-                    recommendation_df = (
-                        non_played_rating
-                        # top_related_rating
-                        .groupby('game_id')
-                        ['weighted_rating']
-                        .agg(['count', 'mean'])
-                        .reset_index()
-                        .loc[lambda df:
-                             (df['count'] >= n_users * perc) &
-                             (df['mean'] >= 4*avg_corr)
-                             ]
-                        .sort_values('mean', ascending=False)
-                        .drop(['count'], axis=1)
-                        .merge(games_df[['name', 'game_id']], on='game_id')
-                        [['name', 'mean']]
-                        )
-                
-                    return recommendation_df
-
-
-                complex_df = complex_df.rename(columns={
-                    col: col.title().replace('_', ' ')
-                    for col in complex_df.columns
-                    })
-                complex_df = complex_df.rename(columns={'Oc Rating': 'Rating'})
-            
-                results = (
-                    most_similar(game_name)
-                    [['name']]
-                    .merge(complex_df, left_on='name', right_on='Name')
-                    .drop('name', axis=1)
-                    )
-
-                pivoted_df = (
-                    games_df
-                    .merge(
-                        st.session_state.reviews_df, how='left', on='game_id'
-                        )
-                    .pivot_table(
-                        index='user_id',
-                        columns='game_id',
-                        values='review_rating'
-                        )
-                    .replace([1, 3, 4, 5], [-2, 0, 1, 5])
-                    )
 
                 results_2 = (
                     similar_review(game_name)
@@ -529,12 +458,15 @@ if SEND_GAME:
                     .merge(complex_df, left_on='name', right_on='Name')
                     .drop('name', axis=1)
                     )
+                if len(results_2) > 0:
+                    results_2.index = range(1, len(results_2)+1)
 
                 chosen_game = (
                     complex_df
                         .loc[complex_df['Name'] == game_name]
                         .reset_index(drop=True)
                         )
+                chosen_game.index = [1]
 
         st.write('This is your chosen game')
         st.dataframe(chosen_game)
@@ -545,16 +477,3 @@ if SEND_GAME:
             'played'
             )
         st.dataframe(results_2.iloc[:10])
-        st.write(
-            'Mixing the results, you should play these'
-            )
-        st.dataframe(
-            results
-            .reset_index()
-            .merge(results_2[['Name']].reset_index(), on='Name')
-            .assign(index=lambda df: (df['index_x'] + df['index_y']) / 2)
-            .sort_values('index', ascending=True)
-            .drop(['index', 'index_x', 'index_y'], axis=1)
-            .reset_index(drop=True)
-            .iloc[:10]
-            )
