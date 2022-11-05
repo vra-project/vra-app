@@ -91,7 +91,7 @@ with st.spinner('Loading data'):
 
     if 'not_played_df' not in st.session_state:
         st.session_state.not_played_df = pd.read_feather(
-            f'{BUCKET_S3}/clean_reviews/not_played.feather'
+            f'{BUCKET_S3}/{NOT_PLAYED}'
             )
 
     # %%

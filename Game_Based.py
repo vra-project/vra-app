@@ -19,7 +19,7 @@ import streamlit as st
 # También se necesitan claves de acceso a nuestro servidor de AWS
 
 BUCKET_S3 = st.secrets['bucket_s3']
-NEW_FILE_NAME = st.secrets['new_file_name']
+CLEAN_NAME = st.secrets['clean_name']
 COMPLEX_NAME = st.secrets['complex_name']
 CLEAN_FOLDER = st.secrets['clean_folder']
 COLS_INT = [
@@ -90,7 +90,7 @@ with st.spinner('Loading data'):
     # Se leen los archivos de juegos
     if 'games_df' not in st.session_state:
         games_df = (
-            pd.read_feather(f'{BUCKET_S3}/{NEW_FILE_NAME}')
+            pd.read_feather(f'{BUCKET_S3}/{CLEAN_NAME}')
             )
 
         complex_df = (
