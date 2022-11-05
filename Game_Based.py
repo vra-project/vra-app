@@ -129,6 +129,15 @@ with st.spinner('Loading data'):
 
 # %%
 # Se selecciona un juego
+st.title('Game Based Recommender')
+st.write(
+    '''
+    Welcome to the Game Based Recommender page from VRA. \n
+    Here you will be able to get recommendations based on a game you like. \n
+    If you prefer to obtain recommendations based on a your username and your
+    reviews, you can access to the User Based Page.
+    '''
+    )
 with st.form(key='select_filters'):
     game_name = st.selectbox(
         'Select a game',
@@ -471,9 +480,9 @@ if SEND_GAME:
         st.write('This is your chosen game')
         st.dataframe(chosen_game)
         st.write('These are recommended based on similarity among games')
-        st.dataframe(results.iloc[:10])
+        st.dataframe(results.iloc[:25])
         st.write(
             'These are recommended based on what other players have also '
             'played'
             )
-        st.dataframe(results_2.iloc[:10])
+        st.dataframe(results_2.iloc[:25])

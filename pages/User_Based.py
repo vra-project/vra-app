@@ -182,6 +182,21 @@ def concat_new_data(original_df, new_data):
 
 
 # %%
+# Se muestra la pagina en la que esta el usuario y se explica su funcionamiento
+st.title('User Based Recommender')
+st.write(
+    '''
+    Welcome to the User Based Recommender page from VRA. \n
+    Here you will be able to enter your username and get recommendations based
+    on the reviews you make on the page. \n
+    You will be able to review random games or your selected games. \n
+    When you have done at least 10 reviews, the recommender will appear and you
+    will have the exclusive opportunity of getting customised recommendations
+    only for yourself. \n
+    If you prefer to obtain recommendations based on a game only, you can
+    access to the Game Based Page
+    '''
+    )
 # Se pide nombre de usuario
 user_name = st.text_input('Enter your username').replace(' ', '-').upper()
 st.write('The more reviews you do, the more accurate the software will be!')
@@ -220,7 +235,7 @@ if user_name != '':
             not_reviewed
             .sort_values('RAWG_nreviews', ascending=False)
             .drop('RAWG_nreviews', axis=1)
-            .head(100).sample(1)
+            .head(200).sample(1)
             .reset_index(drop=True)
             )
         example = example.rename(columns={
@@ -281,7 +296,8 @@ if user_name != '':
         game_name = st.selectbox(
             'Select a game',
             [''] + st.session_state.complex_df['name'].tolist(),
-            key='game_2'
+            key='game_2',
+            index=0
             )
         # Se solicita la review
         score = RATING_VALUE[
@@ -299,6 +315,7 @@ if user_name != '':
                 )
         SEND_REVIEW = st.form_submit_button('Send Review')
         if SEND_REVIEW:
+            st.write(f'Your review of {game_name} has been sent!')
             # Se guardan los resultados, aunque saltara un error si no se ha
             # dado un nombre de juego
             if game_name != '':
@@ -451,187 +468,209 @@ if user_name != '':
 
             # Se realizan las recomendaciones
             SEND_GAME = st.form_submit_button('Search recommendations')
-            if SEND_GAME:
-                with st.spinner(rd.choice(EASTER_EGGS)):
-                    complex_df = st.session_state.complex_df.copy()
-                    # Se filtran los resultados
-                    for var, col in zip(
-                            selected,
-                            MULTI_COLS.keys()
-                            ):
-                        if len(var) > 0:
-                            complex_df = (
-                                complex_df
-                                .loc[
-                                    complex_df[col].map(
-                                        lambda x: any(
-                                            [True for gen in x if gen in var]
-                                            )
+        if SEND_GAME:
+            with st.spinner(rd.choice(EASTER_EGGS)):
+                complex_df = st.session_state.complex_df.copy()
+                # Se filtran los resultados
+                for var, col in zip(
+                        selected,
+                        MULTI_COLS.keys()
+                        ):
+                    if len(var) > 0:
+                        complex_df = (
+                            complex_df
+                            .loc[
+                                complex_df[col].map(
+                                    lambda x: any(
+                                        [True for gen in x if gen in var]
                                         )
-                                    ]
+                                    )
+                                ]
+                            )
+
+                if game_duration[1] == 100:
+                    game_duration[1] = 100000
+                complex_df = complex_df.loc[
+                    (complex_df[duration_type] >= game_duration[0]) &
+                    (complex_df[duration_type] <= game_duration[1])
+                    ]
+
+                complex_df = complex_df.loc[
+                    complex_df['age_ratings'] <= age
+                    ]
+
+                if len(complex_df) == 0:
+                    st.warning(
+                        "There aren't any games that match those filters"
+                        )
+                else:
+                    games_df = (
+                        complex_df[['name']]
+                        .merge(st.session_state.games_df, on='name')
+                        )
+                    similar_df = (
+                        games_df
+                        .drop([
+                            'game_id', 'RAWG_rating', 'RAWG_nreviews'
+                            ],
+                            axis=1
+                            )
+                        )
+                    # Se prepara el dataframe para las recomendaciones
+                    pivoted_df = (
+                        games_df
+                        .loc[games_df['RAWG_nreviews'] > 4]
+                        .merge(
+                            st.session_state.reviews_df,
+                            how='left',
+                            on='game_id'
+                            )
+                        .pivot_table(
+                            index='user_id',
+                            columns='game_id',
+                            values='review_rating'
+                            )
+                        .replace([1, 3, 4, 5], [-1, 0, 1, 5])
+                        )
+
+
+                    def user_based_recommender(user_slug):
+                        '''
+                        En base a un usuario, se buscaran usuarios
+                        similares, teniendo en cuenta que compartan titulos
+                        jugados y con las mismas valoraciones. En base a
+                        esto, se le recomendaran juegos que les haya
+                        gustado a otros usuarios
+                        '''
+                        # Se obtienen los juegos jugados por el usuario
+                        user_df = pivoted_df.loc[
+                            pivoted_df.index == user_slug
+                            ]
+                        user_played_games = (
+                            user_df.columns[user_df.notna().any()].tolist()
+                            )
+
+                        pivoted_user_df = pivoted_df[user_played_games]
+                        # Se obtienen los jugadores que hayan jugado a un
+                        # porcentaje dado de los titulos jugados por el
+                        # usuario
+                        limited_user_df = pivoted_user_df.loc[
+                            pivoted_user_df.count(axis=1) >=
+                            (len(user_played_games) * PERC)
+                            ]
+                        # Se comparan los jugadores, y se obtienen los mas
+                        # similares
+                        corr_values = (
+                            limited_user_df
+                            .T
+                            .corr()
+                            .loc[limited_user_df.index == user_slug]
+                            .drop(user_slug, axis=1)
+                            .reset_index(drop=True)
+                            .unstack()
+                            .sort_values(ascending=False)
+                            .reset_index()
+                            .drop('level_1', axis=1)
+                            .rename(columns={0: 'corr'})
+                            .dropna()
+                            )
+
+                        top_related_users = corr_values.iloc[:N_USERS]
+                        avg_corr = top_related_users['corr'].mean()
+                        # Se crea un campo que indica la valoracion de cada
+                        # usuario a un juego, por la similitud que tenga
+                        # con el usuario original
+                        top_related_rating = (
+                            top_related_users.merge(
+                                st.session_state.reviews_df
                                 )
-
-                    if game_duration[1] == 100:
-                        game_duration[1] = 100000
-                    complex_df = complex_df.loc[
-                        (complex_df[duration_type] >= game_duration[0]) &
-                        (complex_df[duration_type] <= game_duration[1])
-                        ]
-
-                    complex_df = complex_df.loc[
-                        complex_df['age_ratings'] <= age
-                        ]
-
-                    if len(complex_df) == 0:
-                        st.warning(
-                            "There aren't any games that match those filters"
+                            .assign(weighted_rating=lambda df:
+                                    df['corr'] * df['review_rating'])
+                            .drop('user_id', axis=1)
                             )
-                    else:
-                        games_df = (
-                            complex_df[['name']]
-                            .merge(st.session_state.games_df, on='name')
-                            )
-                        similar_df = (
-                            games_df
-                            .drop([
-                                'game_id', 'RAWG_rating', 'RAWG_nreviews'
-                                ],
-                                axis=1
-                                )
-                            )
-                        # Se prepara el dataframe para las recomendaciones
-                        pivoted_df = (
-                            games_df
-                            .loc[games_df['RAWG_nreviews'] > 4]
+                        # Se recomiendan unicamente juegos que no haya
+                        # jugado el usuario
+                        non_played_rating = top_related_rating.loc[
+                            ~(top_related_rating['game_id']
+                              .isin(user_played_games))
+                            ]
+                        # Aquellos juegos recomendados debe haberlos jugado
+                        # cierto porcentaje de los usuarios top, y recibir
+                        # una valoracion promedio positiva
+                        recommendation_df = (
+                            non_played_rating
+                            .groupby('game_id')
+                            ['weighted_rating']
+                            .agg(['count', 'mean'])
+                            .reset_index()
+                            .loc[lambda df:
+                                 (df['count'] >= N_USERS * PERC) &
+                                 (df['mean'] >= 4*avg_corr)
+                                 ]
+                            .sort_values('mean', ascending=False)
+                            .drop(['count'], axis=1)
                             .merge(
-                                st.session_state.reviews_df,
-                                how='left',
+                                games_df[['name', 'game_id']],
                                 on='game_id'
                                 )
-                            .pivot_table(
-                                index='user_id',
-                                columns='game_id',
-                                values='review_rating'
-                                )
-                            .replace([1, 3, 4, 5], [-1, 0, 1, 5])
+                            [['name', 'mean']]
                             )
 
-
-                        def user_based_recommender(user_slug):
-                            '''
-                            En base a un usuario, se buscaran usuarios
-                            similares, teniendo en cuenta que compartan titulos
-                            jugados y con las mismas valoraciones. En base a
-                            esto, se le recomendaran juegos que les haya
-                            gustado a otros usuarios
-                            '''
-                            # Se obtienen los juegos jugados por el usuario
-                            user_df = pivoted_df.loc[
-                                pivoted_df.index == user_slug
-                                ]
-                            user_played_games = (
-                                user_df.columns[user_df.notna().any()].tolist()
-                                )
-
-                            pivoted_user_df = pivoted_df[user_played_games]
-                            # Se obtienen los jugadores que hayan jugado a un
-                            # porcentaje dado de los titulos jugados por el
-                            # usuario
-                            limited_user_df = pivoted_user_df.loc[
-                                pivoted_user_df.count(axis=1) >=
-                                (len(user_played_games) * PERC)
-                                ]
-                            # Se comparan los jugadores, y se obtienen los mas
-                            # similares
-                            corr_values = (
-                                limited_user_df
-                                .T
-                                .corr()
-                                .loc[limited_user_df.index == user_slug]
-                                .drop(user_slug, axis=1)
-                                .reset_index(drop=True)
-                                .unstack()
-                                .sort_values(ascending=False)
-                                .reset_index()
-                                .drop('level_1', axis=1)
-                                .rename(columns={0: 'corr'})
-                                .dropna()
-                                )
-
-                            top_related_users = corr_values.iloc[:N_USERS]
-                            avg_corr = top_related_users['corr'].mean()
-                            # Se crea un campo que indica la valoracion de cada
-                            # usuario a un juego, por la similitud que tenga
-                            # con el usuario original
-                            top_related_rating = (
-                                top_related_users.merge(
-                                    st.session_state.reviews_df
-                                    )
-                                .assign(weighted_rating=lambda df:
-                                        df['corr'] * df['review_rating'])
-                                .drop('user_id', axis=1)
-                                )
-                            # Se recomiendan unicamente juegos que no haya
-                            # jugado el usuario
-                            non_played_rating = top_related_rating.loc[
-                                ~(top_related_rating['game_id']
-                                  .isin(user_played_games))
-                                ]
-                            # Aquellos juegos recomendados debe haberlos jugado
-                            # cierto porcentaje de los usuarios top, y recibir
-                            # una valoracion promedio positiva
-                            recommendation_df = (
-                                non_played_rating
-                                .groupby('game_id')
-                                ['weighted_rating']
-                                .agg(['count', 'mean'])
-                                .reset_index()
-                                .loc[lambda df:
-                                     (df['count'] >= N_USERS * PERC) &
-                                     (df['mean'] >= 4*avg_corr)
-                                     ]
-                                .sort_values('mean', ascending=False)
-                                .drop(['count'], axis=1)
-                                .merge(
-                                    games_df[['name', 'game_id']],
-                                    on='game_id'
-                                    )
-                                [['name', 'mean']]
-                                )
-
-                            return recommendation_df
+                        return recommendation_df
 
 
-                    # Se da un formato adecuado a los juegos recomendados
-                    complex_df = complex_df.rename(columns={
-                        col: col.title().replace('_', ' ')
-                        for col in complex_df.columns
-                        })
-                    complex_df = complex_df.rename(
-                        columns={'Oc Rating': 'Rating'}
+                # Se da un formato adecuado a los juegos recomendados
+                complex_df = complex_df.rename(columns={
+                    col: col.title().replace('_', ' ')
+                    for col in complex_df.columns
+                    })
+                complex_df = complex_df.rename(
+                    columns={'Oc Rating': 'Rating'}
+                    )
+                results = (
+                    user_based_recommender(user_name)
+                    [['name']]
+                    .merge(complex_df, left_on='name', right_on='Name')
+                    .drop('name', axis=1)
+                    .iloc[:25]
+                    )
+                if len(results) > 0:
+                    results.index = range(1, len(results)+1)
+                    st.write(
+                        'These are recommended based on similarity among '
+                        'users'
                         )
-                    results = (
-                        user_based_recommender(user_name)
-                        [['name']]
-                        .merge(complex_df, left_on='name', right_on='Name')
-                        .drop('name', axis=1)
-                        .iloc[:10]
+                    st.dataframe(results)
+                else:
+                    st.write(
+                        "There wasn't any match, try reviewing more games"
                         )
-                    if len(results) > 0:
-                        results.index = range(1, len(results)+1)
-                        st.write(
-                            'These are recommended based on similarity among '
-                            'users'
-                            )
-                        st.dataframe(results)
-                    else:
-                        st.write(
-                            "There wasn't any match, try reviewing more games"
-                            )
 
     else:
         st.text(
             'You need at least 10 reviews to get recommendations and you did '
             f'{len(user_reviews)}'
             )
-        
+
+    user_games_df = (
+        st.session_state.complex_df
+        .merge(
+            st.session_state.games_df
+            .merge(user_reviews, on='game_id')
+            [['name', 'review_rating']],
+            on='name'
+            )
+        )
+    user_games_df.index = range(1, len(user_games_df)+1)
+    user_games_df = user_games_df.rename(columns={
+        col: col.title().replace('_', ' ')
+        for col in user_games_df.columns
+        })
+    user_games_df = user_games_df.rename(
+        columns={'Oc Rating': 'Rating'}
+        )
+    user_games_df = user_games_df[
+        ['Name', 'Review Rating'] + user_games_df.columns[1:-1].tolist()
+        ]
+    st.write('These are your rated games')
+    st.dataframe(user_games_df)

@@ -3,7 +3,7 @@ Streamlit app designed to allow the users to interact with the algorithm and get
 
 ## Table of contents
 * [General info] (#general-info)
-* [Technologies] (#technologies)
+* [Technologies] (#technologies)S
 * [Setup] (#setup)
 
 ## General info
