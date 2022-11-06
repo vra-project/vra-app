@@ -44,10 +44,10 @@ one_hot_values = {
     'publisher': 0.25,
     'keywords': 0.6,
     'devs': 1,
-    'franchises': 1,
+    'franchises': 0.75,
     'country': 0.05,
     'genres': 0.9,
-    'themes': 0.7,
+    'themes': 0.8,
     'game_modes': 0.5,
     'player_perspectives': 0.4
     }
@@ -134,7 +134,7 @@ st.write(
     '''
     Welcome to the Game Based Recommender page from VRA. \n
     Here you will be able to get recommendations based on a game you like. \n
-    If you prefer to obtain recommendations based on a your username and your
+    If you prefer to obtain recommendations based on your username and your
     reviews, you can access to the User Based Page.
     '''
     )
